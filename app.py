@@ -1,3 +1,15 @@
+import traceback
+import streamlit as st
+
+try:
+    import polars as pl
+    import plotly.express as px
+except Exception as e:
+    st.error("Import failed:")
+    st.code(traceback.format_exc())
+    st.stop()
+
+
 import streamlit as st
 import polars as pl
 import plotly.express as px
