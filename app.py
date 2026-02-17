@@ -24,8 +24,12 @@ st.write("This dashboard provides insights into NYC yellow taxi trips for Januar
 
 tab_overview, tab_charts = st.tabs(["Overview", "Charts"])
 
-CLEANED_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/cleaned_taxi.parquet"
-ZONES_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/zones.parquet"
+CLEANED_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/cleaned_taxi.parquet?download=true"
+ZONES_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/zones.parquet?download=true"
+
+
+# CLEANED_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/cleaned_taxi.parquet"
+# ZONES_PATH = "https://huggingface.co/datasets/Denelle/streamlit-data/resolve/main/zones.parquet"
 
 PAYMENT_TYPE_LABELS = {
     1 : "Credit card",
