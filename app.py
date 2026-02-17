@@ -1,6 +1,7 @@
 import os
 import tempfile
 import traceback
+from datetime import date
 
 import requests
 import streamlit as st
@@ -24,8 +25,8 @@ st.set_page_config(
 
 st.title("NYC Yellow Taxi Trips - January 2024")
 st.write(
-    "This dashboard provides insights into NYC yellow taxi trips for January 2024 using interactive filters and visualisations, "
-    "based on the data provided."
+    "Interactive dashboard for NYC yellow taxi trips (January 2024). "
+    "Use the sidebar filters to explore trip patterns."
 )
 
 tab_overview, tab_charts = st.tabs(["Overview", "Charts"])
@@ -55,14 +56,10 @@ NEEDED_COLS = [
 ]
 
 # -------------------------
-# Download + load (cached)
+# Download once (cached) -> local parquet path
 # -------------------------
 @st.cache_data(show_spinner="Downloading parquet (first run only)...")
 def download_parquet(url: str) -> str:
-    """
-    Downloads url to a temp file and returns the file path.
-    Cached so it won't download again on reruns / filter changes.
-    """
     headers = {"User-Agent": "Mozilla/5.0"}
     r = requests.get(url, headers=headers, stream=True, timeout=300)
     r.raise_for_status()
@@ -75,7 +72,7 @@ def download_parquet(url: str) -> str:
             if chunk:
                 f.write(chunk)
 
-    # quick parquet sanity check (magic bytes "PAR1")
+    # parquet sanity check: header should be PAR1
     with open(path, "rb") as f:
         head = f.read(4)
     if head != b"PAR1":
@@ -84,55 +81,22 @@ def download_parquet(url: str) -> str:
     return path
 
 
-@st.cache_data(show_spinner="Loading trips…")
-def load_trips() -> pl.DataFrame:
+@st.cache_data(show_spinner=False)
+def trips_lazy() -> pl.LazyFrame:
+    """Lazy scan so we don't load the whole dataset into memory."""
     path = download_parquet(CLEANED_URL)
-    return pl.read_parquet(path, columns=NEEDED_COLS)
+    return pl.scan_parquet(path)
 
 
-@st.cache_data(show_spinner="Loading zones…")
-def load_zones() -> pl.DataFrame:
+@st.cache_data(show_spinner=False)
+def zones_df() -> pl.DataFrame:
+    """Zones is small; load as a normal DataFrame."""
     path = download_parquet(ZONES_URL)
     return pl.read_parquet(path)
 
 
-@st.cache_data(show_spinner="Attaching zone names…")
-def trips_with_zones() -> pl.DataFrame:
-    """
-    Expensive join step cached so filters don't redo it.
-    """
-    df = load_trips()
-    zones = load_zones()
-
-    z_pick = zones.select(
-        [
-            pl.col("LocationID"),
-            pl.col("Zone").alias("pickup_zone"),
-            pl.col("Borough").alias("pickup_borough"),
-        ]
-    )
-    z_drop = zones.select(
-        [
-            pl.col("LocationID"),
-            pl.col("Zone").alias("dropoff_zone"),
-            pl.col("Borough").alias("dropoff_borough"),
-        ]
-    )
-
-    return (
-        df.join(z_pick, left_on="PULocationID", right_on="LocationID", how="left")
-          .join(z_drop, left_on="DOLocationID", right_on="LocationID", how="left")
-    )
-
-
-@st.cache_data
-def payment_options(df: pl.DataFrame):
-    return sorted(
-        df.select("payment_type").unique().to_series().drop_nulls().to_list()
-    )
-
 # -------------------------
-# Prevent Cloud health-check timeout
+# Prevent Streamlit Cloud health-check timeout
 # -------------------------
 if "ready" not in st.session_state:
     st.session_state.ready = False
@@ -144,49 +108,41 @@ if not st.session_state.ready:
         st.rerun()
     st.stop()
 
-# -------------------------
-# Load df once (cached)
-# -------------------------
-try:
-    df = trips_with_zones()
-except Exception:
-    st.error("Crash while loading data:")
-    st.code(traceback.format_exc())
-    st.stop()
 
 # -------------------------
-# Sidebar filters
+# Sidebar filters (DON'T compute min/max from data; keep it fast)
 # -------------------------
 st.sidebar.header("Filters")
 
-min_dt = df.select(pl.col("tpep_pickup_datetime").min()).item()
-max_dt = df.select(pl.col("tpep_pickup_datetime").max()).item()
+jan_start = date(2024, 1, 1)
+jan_end = date(2024, 1, 31)
 
 date_val = st.sidebar.date_input(
-    "Date range",
-    value=(min_dt.date(), max_dt.date()),
-    min_value=min_dt.date(),
-    max_value=max_dt.date(),
+    "Pickup date range (January 2024)",
+    value=(jan_start, jan_end),
+    min_value=jan_start,
+    max_value=jan_end,
 )
 
-# handle single date, 1-item tuple, 2-item tuple
+# Streamlit can return single date, 1-item tuple, or 2-item tuple
 if isinstance(date_val, (tuple, list)):
     if len(date_val) == 2:
         start_date, end_date = date_val
     elif len(date_val) == 1:
         start_date = end_date = date_val[0]
     else:
-        start_date = end_date = min_dt.date()
+        start_date = end_date = jan_start
 else:
     start_date = end_date = date_val
 
 if start_date > end_date:
     start_date, end_date = end_date, start_date
 
-hour_min, hour_max = st.sidebar.slider("Hour range (0-23)", 0, 23, (0, 23))
+hour_min, hour_max = st.sidebar.slider("Pickup hour range (0–23)", 0, 23, (0, 23))
 
-pay_opts = payment_options(df)
-
+# Don’t compute pay options from the dataset on every rerun (expensive).
+# Use known TLC codes.
+pay_opts = [1, 2, 3, 4, 5]
 selected_pay = st.sidebar.multiselect(
     "Payment types",
     options=pay_opts,
@@ -194,16 +150,62 @@ selected_pay = st.sidebar.multiselect(
     format_func=lambda x: f"{int(x)} - {PAYMENT_TYPE_LABELS.get(int(x), 'Other')}",
 )
 
-# Apply filters (cheap compared to download/join)
-filtered = (
-    df.filter(pl.col("tpep_pickup_datetime").dt.date().is_between(start_date, end_date))
-      .filter(pl.col("pickup_hour").is_between(hour_min, hour_max))
-      .filter(pl.col("payment_type").is_in(selected_pay))
-)
+# -------------------------
+# Filter lazily, then collect a smaller DataFrame
+# -------------------------
+try:
+    with st.spinner("Filtering trips..."):
+        lf = trips_lazy()
+
+        filtered = (
+            lf
+            .filter(pl.col("tpep_pickup_datetime").dt.date().is_between(start_date, end_date))
+            .filter(pl.col("pickup_hour").is_between(hour_min, hour_max))
+            .filter(pl.col("payment_type").is_in(selected_pay))
+            .select(NEEDED_COLS)
+            .collect()
+        )
+except Exception:
+    st.error("Crash while filtering trips:")
+    st.code(traceback.format_exc())
+    st.stop()
 
 if filtered.height == 0:
     st.warning("No trips match your filters.")
     st.stop()
+
+# Optional safety cap if filters still produce a massive subset (prevents Cloud OOM)
+MAX_ROWS = 300_000
+if filtered.height > MAX_ROWS:
+    st.warning(f"Large result set ({filtered.height:,} rows). Showing first {MAX_ROWS:,} rows for stability.")
+    filtered = filtered.head(MAX_ROWS)
+
+# -------------------------
+# Attach zone names ONLY on filtered subset (fast + memory-safe)
+# -------------------------
+try:
+    with st.spinner("Attaching zone names..."):
+        zones = zones_df()
+
+        z_pick = zones.select([
+            pl.col("LocationID"),
+            pl.col("Zone").alias("pickup_zone"),
+            pl.col("Borough").alias("pickup_borough"),
+        ])
+        z_drop = zones.select([
+            pl.col("LocationID"),
+            pl.col("Zone").alias("dropoff_zone"),
+            pl.col("Borough").alias("dropoff_borough"),
+        ])
+
+        filtered = (
+            filtered
+            .join(z_pick, left_on="PULocationID", right_on="LocationID", how="left")
+            .join(z_drop, left_on="DOLocationID", right_on="LocationID", how="left")
+        )
+except Exception:
+    st.warning("Could not attach zone names (continuing without them).")
+    st.code(traceback.format_exc())
 
 # -------------------------
 # Overview tab
@@ -224,19 +226,22 @@ with tab_overview:
     c4.metric("Average Trip Distance (miles)", f"{avg_trip_distance:.2f} mi")
     c5.metric("Average Trip Duration (minutes)", f"{avg_trip_duration:.2f} min")
 
+    st.caption("Metrics reflect the filtered subset of trips.")
+
 # -------------------------
 # Charts tab
 # -------------------------
 with tab_charts:
     st.subheader("Visualisations")
 
-    # Chart 1: Top 10 pickup zones
+    # Chart 1: Top 10 Pickup Zones
     group_col = "pickup_zone" if "pickup_zone" in filtered.columns else "PULocationID"
     top10_pickups = (
-        filtered.group_by(group_col)
-                .agg(pl.len().alias("trip_count"))
-                .sort("trip_count", descending=True)
-                .head(10)
+        filtered
+        .group_by(group_col)
+        .agg(pl.len().alias("trip_count"))
+        .sort("trip_count", descending=True)
+        .head(10)
     )
     fig1 = px.bar(
         top10_pickups.to_dict(as_series=False),
@@ -248,11 +253,12 @@ with tab_charts:
     fig1.update_layout(xaxis_tickangle=-30)
     st.plotly_chart(fig1, width="stretch")
 
-    # Chart 2: Average fare by hour
+    # Chart 2: Average Fare by Hour
     avg_fare_by_hour = (
-        filtered.group_by("pickup_hour")
-                .agg(pl.col("fare_amount").mean().alias("avg_fare"))
-                .sort("pickup_hour")
+        filtered
+        .group_by("pickup_hour")
+        .agg(pl.col("fare_amount").mean().alias("avg_fare"))
+        .sort("pickup_hour")
     )
     fig2 = px.line(
         avg_fare_by_hour.to_dict(as_series=False),
@@ -264,7 +270,7 @@ with tab_charts:
     )
     st.plotly_chart(fig2, width="stretch")
 
-    # Chart 3: Trip distance histogram (no pandas)
+    # Chart 3: Trip Distance Distribution
     dist_dict = filtered.select("trip_distance").to_dict(as_series=False)
     fig3 = px.histogram(
         dist_dict,
@@ -275,17 +281,18 @@ with tab_charts:
     )
     st.plotly_chart(fig3, width="stretch")
 
-    # Chart 4: Payment breakdown
+    # Chart 4: Payment Type Breakdown
     payment_breakdown = (
-        filtered.group_by("payment_type")
-                .agg(pl.len().alias("trip_count"))
-                .with_columns(
-                    pl.col("payment_type")
-                      .cast(pl.Int32)
-                      .map_elements(lambda x: f"{x} - {PAYMENT_TYPE_LABELS.get(x, 'Other')}")
-                      .alias("payment_label")
-                )
-                .sort("trip_count", descending=True)
+        filtered
+        .group_by("payment_type")
+        .agg(pl.len().alias("trip_count"))
+        .with_columns(
+            pl.col("payment_type")
+              .cast(pl.Int32)
+              .map_elements(lambda x: f"{x} - {PAYMENT_TYPE_LABELS.get(x, 'Other')}")
+              .alias("payment_label")
+        )
+        .sort("trip_count", descending=True)
     )
     fig4 = px.bar(
         payment_breakdown.to_dict(as_series=False),
@@ -297,12 +304,14 @@ with tab_charts:
     fig4.update_traces(texttemplate="%{y:,}", textposition="outside")
     st.plotly_chart(fig4, width="stretch")
 
-    # Chart 5: Heatmap day vs hour
+    # Chart 5: Heatmap (Day vs Hour)
     heat = (
-        filtered.group_by(["pickup_day_of_week", "pickup_hour"])
-                .agg(pl.len().alias("trip_count"))
+        filtered
+        .group_by(["pickup_day_of_week", "pickup_hour"])
+        .agg(pl.len().alias("trip_count"))
     )
     day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
     fig5 = px.density_heatmap(
         heat.to_dict(as_series=False),
         x="pickup_hour",
