@@ -252,6 +252,7 @@ with tab_charts:
     )
     fig1.update_layout(xaxis_tickangle=-30)
     st.plotly_chart(fig1, width="stretch")
+    st.write("Taxi demand is heavily concentrated in Midtown Center, the Upper East Side, and major airports, highlighting the importance of business districts and travel hubs in generating trips. This suggests strong commuter and tourism-driven mobility patterns across these zones. ")
 
     # Chart 2: Average Fare by Hour
     avg_fare_by_hour = (
@@ -269,6 +270,7 @@ with tab_charts:
         labels={"pickup_hour": "Hour of Day", "avg_fare": "Average Fare ($)"},
     )
     st.plotly_chart(fig2, width="stretch")
+    st.write("The highest average fares occur in the early morning, particularly around 5 AM, likely driven by airport or long-distance trips. During most daytime hours, fares remain relatively stable between approximately $17–$19, with a modest increase again in the late evening as travel demand rises.")
 
     # Chart 3: Trip Distance Distribution
     dist_dict = filtered.select("trip_distance").to_dict(as_series=False)
@@ -280,6 +282,7 @@ with tab_charts:
         labels={"trip_distance": "Trip Distance (miles)"},
     )
     st.plotly_chart(fig3, width="stretch")
+    st.write("Trip distances are heavily concentrated at the lower end of the scale, confirming that NYC taxi usage is dominated by short, intra-city travel. The pronounced right tail reflects occasional long-distance trips, such as airport or inter-borough journeys, but these occur far less frequently than short urban rides.")
 
     # Chart 4: Payment Type Breakdown
     payment_breakdown = (
@@ -303,6 +306,7 @@ with tab_charts:
     )
     fig4.update_traces(texttemplate="%{y:,}", textposition="outside")
     st.plotly_chart(fig4, width="stretch")
+    st.write("Credit card payments overwhelmingly dominate taxi transactions, accounting for the vast majority of trips, while cash represents a much smaller share. Other payment categories, including disputes and no-charge trips, contribute only a negligible portion of total rides. This distribution highlights the strong reliance on electronic payment systems in urban taxi operations.")
 
     # Chart 5: Heatmap (Day vs Hour)
     heat = (
@@ -326,3 +330,4 @@ with tab_charts:
         },
     )
     st.plotly_chart(fig5, width="stretch")
+    st.write("Trip volume peaks during weekday commuting hours, particularly between late afternoon and early evening (around 4 PM–7 PM), with Wednesday showing especially high demand. Early morning hours (approximately 2 AM–5 AM) consistently record the lowest trip counts across all days. On weekends, demand shifts later into the day, reflecting leisure and social travel patterns rather than traditional commuting activity.")
