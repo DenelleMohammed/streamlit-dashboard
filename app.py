@@ -6,7 +6,6 @@ import plotly.express as px
 # 7. Dashboard Structure
 st.set_page_config(
     page_title="NYC Taxi Dashboard ; COMP3610 Assignment 1",
-    page_icon="taxi",
     layout="wide",
 )
 
