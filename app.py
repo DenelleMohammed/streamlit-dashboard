@@ -141,7 +141,7 @@ with tab_overview:
     )
 
     # Required Visualisations 
-    with tab_charts:
+with tab_charts:
         st.subheader("Visualisations")
 
         # Chart 1: Bar Chart - Top 10 Pickup Zones 
