@@ -1,11 +1,14 @@
 import streamlit as st
 import polars as pl
 import plotly.express as px
+import io
+import requests
 
 
 # 7. Dashboard Structure
 st.set_page_config(
     page_title="NYC Taxi Dashboard ; COMP3610 Assignment 1",
+    page_icon="taxi",
     layout="wide",
 )
 
@@ -25,13 +28,25 @@ PAYMENT_TYPE_LABELS = {
     5: "Unknown",
 }
 
-@st.cache_data
-def load_cleaned_trips() -> pl.DataFrame:
-    return pl.read_parquet(CLEANED_PATH)
+# @st.cache_data
+# def load_cleaned_trips() -> pl.DataFrame:
+#     return pl.read_parquet(CLEANED_PATH)
 
-@st.cache_data
+# @st.cache_data
+# def load_zones() -> pl.DataFrame:
+#     return pl.read_parquet(ZONES_PATH)
+
+@st.cache_data(show_spinner="Downloading trip data (first run only)...")
+def load_cleaned_trips() -> pl.DataFrame:
+    r = requests.get(CLEANED_PATH, timeout=60)
+    r.raise_for_status()
+    return pl.read_parquet(io.BytesIO(r.content))
+
+@st.cache_data(show_spinner="Downloading zones data (first run only)...")
 def load_zones() -> pl.DataFrame:
-    return pl.read_parquet(ZONES_PATH)
+    r = requests.get(ZONES_PATH, timeout=60)
+    r.raise_for_status()
+    return pl.read_parquet(io.BytesIO(r.content))
 
 @st.cache_data
 def ensure_zone_names(df: pl.DataFrame) -> pl.DataFrame:
