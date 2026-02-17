@@ -443,6 +443,20 @@ except Exception:
 # -------------------------
 st.sidebar.header("Filters")
 
+# min_dt = df.select(pl.col("tpep_pickup_datetime").min()).item()
+# max_dt = df.select(pl.col("tpep_pickup_datetime").max()).item()
+
+# date_val = st.sidebar.date_input(
+#     "Date range",
+#     value=(min_dt.date(), max_dt.date()),
+#     min_value=min_dt.date(),
+#     max_value=max_dt.date(),
+# )
+# if isinstance(date_val, tuple):
+#     start_date, end_date = date_val
+# else:
+#     start_date = end_date = date_val
+
 min_dt = df.select(pl.col("tpep_pickup_datetime").min()).item()
 max_dt = df.select(pl.col("tpep_pickup_datetime").max()).item()
 
@@ -452,10 +466,25 @@ date_val = st.sidebar.date_input(
     min_value=min_dt.date(),
     max_value=max_dt.date(),
 )
-if isinstance(date_val, tuple):
-    start_date, end_date = date_val
+
+# Streamlit can return:
+# - a single date
+# - a tuple/list with 1 date
+# - a tuple/list with 2 dates
+if isinstance(date_val, (tuple, list)):
+    if len(date_val) == 2:
+        start_date, end_date = date_val
+    elif len(date_val) == 1:
+        start_date = end_date = date_val[0]
+    else:
+        start_date = end_date = min_dt.date()
 else:
     start_date = end_date = date_val
+
+# (optional) ensure start <= end
+if start_date > end_date:
+    start_date, end_date = end_date, start_date
+
 
 hour_min, hour_max = st.sidebar.slider("Hour range (0-23)", 0, 23, (0, 23))
 
