@@ -114,6 +114,7 @@ if not st.session_state.ready:
 # -------------------------
 st.sidebar.header("Filters")
 
+# Date filter
 jan_start = date(2024, 1, 1)
 jan_end = date(2024, 1, 31)
 
@@ -138,10 +139,10 @@ else:
 if start_date > end_date:
     start_date, end_date = end_date, start_date
 
+# Hour filter
 hour_min, hour_max = st.sidebar.slider("Pickup hour range (0–23)", 0, 23, (0, 23))
 
-# Don’t compute pay options from the dataset on every rerun (expensive).
-# Use known TLC codes.
+# Paymnt type filter
 pay_opts = [1, 2, 3, 4, 5]
 selected_pay = st.sidebar.multiselect(
     "Payment types",
@@ -152,6 +153,7 @@ selected_pay = st.sidebar.multiselect(
 
 # -------------------------
 # Filter lazily, then collect a smaller DataFrame
+# Original dataset is 1.3M rows and caused streamlit to timeout on every filter change
 # -------------------------
 try:
     with st.spinner("Filtering trips..."):
